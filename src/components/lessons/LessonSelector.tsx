@@ -1,55 +1,12 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Terminal, GitBranch, Package, Server } from "lucide-react";
+import { courseList } from "@/courses";
 
 interface LessonSelectorProps {
   onSelectLesson: (lessonId: string) => void;
   activeLesson: string | null;
 }
-
-const lessonTracks = [
-  {
-    id: "bash-basics",
-    title: "Bash Basics",
-    icon: Terminal,
-    color: "text-terminal-green",
-    bgColor: "bg-terminal-green/20",
-    lessons: 8,
-    xp: 400,
-    description: "Master fundamental shell commands",
-  },
-  {
-    id: "git-fundamentals",
-    title: "Git Fundamentals",
-    icon: GitBranch,
-    color: "text-terminal-blue",
-    bgColor: "bg-terminal-blue/20",
-    lessons: 12,
-    xp: 600,
-    description: "Version control essentials",
-  },
-  {
-    id: "docker-intro",
-    title: "Docker Intro",
-    icon: Package,
-    color: "text-secondary",
-    bgColor: "bg-secondary/20",
-    lessons: 10,
-    xp: 500,
-    description: "Container basics and workflows",
-  },
-  {
-    id: "linux-utils",
-    title: "Linux Utilities",
-    icon: Server,
-    color: "text-terminal-yellow",
-    bgColor: "bg-terminal-yellow/20",
-    lessons: 15,
-    xp: 750,
-    description: "Essential Linux tools",
-  },
-];
 
 const LessonSelector = ({ onSelectLesson, activeLesson }: LessonSelectorProps) => {
   return (
@@ -62,7 +19,7 @@ const LessonSelector = ({ onSelectLesson, activeLesson }: LessonSelectorProps) =
       </div>
 
       <div className="space-y-4">
-        {lessonTracks.map((track) => {
+        {courseList.map((track) => {
           const Icon = track.icon;
           const isActive = activeLesson === track.id;
 
