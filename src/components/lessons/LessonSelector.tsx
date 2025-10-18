@@ -2,25 +2,50 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { lessons } from "@/courses/bash-basics/lessons";
+import { courseList } from "@/courses";
+import { lessons as bashLessons } from "@/courses/bash-basics/lessons";
+import { lessons as gitLessons } from "@/courses/git-fundamentals/lessons";
+import { lessons as dockerLessons } from "@/courses/docker-intro/lessons";
+import { lessons as linuxLessons } from "@/courses/linux-utils/lessons";
 import { BookOpen, Trophy } from "lucide-react";
 
 interface LessonSelectorProps {
   onSelectLesson: (lessonId: number) => void;
   completedLessons: number[];
   onBack: () => void;
+  courseId: string;
 }
 
-const LessonSelector = ({ onSelectLesson, completedLessons, onBack }: LessonSelectorProps) => {
+const LessonSelector = ({ onSelectLesson, completedLessons, onBack, courseId }: LessonSelectorProps) => {
+  // Get lessons based on course ID
+  const getLessons = () => {
+    switch (courseId) {
+      case "bash-basics":
+        return bashLessons;
+      case "git-fundamentals":
+        return gitLessons;
+      case "docker-intro":
+        return dockerLessons;
+      case "linux-utils":
+        return linuxLessons;
+      default:
+        return [];
+    }
+  };
+
+  const lessons = getLessons();
+  const course = courseList.find(c => c.id === courseId);
+
+  if (!course) return null;
   return (
     <Card className="p-6 gradient-card border-border/50 flex flex-col h-full max-h-[calc(100vh-12rem)]">
       <div className="mb-6 flex-shrink-0">
         <Button variant="outline" size="sm" onClick={onBack} className="mb-4">
           ← Back to Courses
         </Button>
-        <h2 className="text-2xl font-bold mb-2">Bash Basics Course</h2>
+        <h2 className="text-2xl font-bold mb-2">{course.title}</h2>
         <p className="text-sm text-muted-foreground">
-          Start your command line journey
+          {course.description}
         </p>
       </div>
 

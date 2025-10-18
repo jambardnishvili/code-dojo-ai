@@ -14,6 +14,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { courses } from "@/courses";
 import { Lesson, lessons as bashLessons } from "@/courses/bash-basics/lessons";
+import { lessons as gitLessons } from "@/courses/git-fundamentals/lessons";
+import { lessons as dockerLessons } from "@/courses/docker-intro/lessons";
+import { lessons as linuxLessons } from "@/courses/linux-utils/lessons";
 
 interface UserProgress {
   total_xp: number;
@@ -31,11 +34,18 @@ const Dashboard = () => {
   const getCurrentLesson = (): Lesson | null => {
     if (!activeCourseId || !activeLessonId) return null;
     
-    if (activeCourseId === "bash-basics") {
-      return bashLessons.find(l => l.id === activeLessonId) || null;
+    switch (activeCourseId) {
+      case "bash-basics":
+        return bashLessons.find(l => l.id === activeLessonId) || null;
+      case "git-fundamentals":
+        return gitLessons.find(l => l.id === activeLessonId) || null;
+      case "docker-intro":
+        return dockerLessons.find(l => l.id === activeLessonId) || null;
+      case "linux-utils":
+        return linuxLessons.find(l => l.id === activeLessonId) || null;
+      default:
+        return null;
     }
-    // Other courses don't have proper validation structure yet
-    return null;
   };
   const [userProgress, setUserProgress] = useState<UserProgress | null>(null);
   const [completedLessonsCount, setCompletedLessonsCount] = useState(0);
@@ -327,6 +337,7 @@ const Dashboard = () => {
               onSelectLesson={setActiveLessonId}
               completedLessons={completedLessonIds}
               onBack={() => setActiveCourseId(null)}
+              courseId={activeCourseId}
             />
           ) : (
             <CourseSelector 
