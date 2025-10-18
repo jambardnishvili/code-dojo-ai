@@ -16,7 +16,7 @@ const TerminalEmulator = ({ activeLesson, onAIRequest }: TerminalEmulatorProps) 
   const { toast } = useToast();
 
   // Simulated filesystem
-  const filesystem = useRef({
+  const filesystem = useRef<any>({
     "/": {
       "home": {
         "user": {
@@ -33,6 +33,41 @@ const TerminalEmulator = ({ activeLesson, onAIRequest }: TerminalEmulatorProps) 
   const commandHistory = useRef<string[]>([]);
   const historyIndex = useRef(-1);
   let currentLine = "";
+
+  // Helper function to get directory contents
+  const getDirectory = (path: string) => {
+    const parts = path.split("/").filter(Boolean);
+    let current = filesystem.current["/"];
+    
+    for (const part of parts) {
+      if (current[part] === undefined) {
+        return null;
+      }
+      current = current[part];
+    }
+    return current;
+  };
+
+  // Helper function to normalize path
+  const normalizePath = (path: string, currentPath: string) => {
+    if (path.startsWith("/")) {
+      return path;
+    }
+    
+    const combined = `${currentPath}/${path}`;
+    const parts = combined.split("/").filter(Boolean);
+    const normalized: string[] = [];
+    
+    for (const part of parts) {
+      if (part === "..") {
+        normalized.pop();
+      } else if (part !== ".") {
+        normalized.push(part);
+      }
+    }
+    
+    return "/" + normalized.join("/");
+  };
 
   useEffect(() => {
     if (!terminalRef.current || xtermRef.current) return;
@@ -139,8 +174,19 @@ const TerminalEmulator = ({ activeLesson, onAIRequest }: TerminalEmulatorProps) 
         break;
 
       case "ls":
-        const path = args[0] || currentDir.current;
-        term.writeln("\x1b[1;36mdocuments  projects\x1b[0m");
+        const targetPath = args[0] ? normalizePath(args[0], currentDir.current) : currentDir.current;
+        const dir = getDirectory(targetPath);
+        
+        if (dir === null) {
+          term.writeln(`\x1b[31mls: cannot access '${args[0]}': No such file or directory\x1b[0m`);
+        } else {
+          const contents = Object.keys(dir);
+          if (contents.length === 0) {
+            // Empty directory
+          } else {
+            term.writeln("\x1b[1;36m" + contents.join("  ") + "\x1b[0m");
+          }
+        }
         break;
 
       case "pwd":
@@ -148,26 +194,35 @@ const TerminalEmulator = ({ activeLesson, onAIRequest }: TerminalEmulatorProps) 
         break;
 
       case "cd":
-        if (!args[0]) {
-          currentDir.current = "/home/user";
-        } else if (args[0] === "..") {
-          const parts = currentDir.current.split("/").filter(Boolean);
-          parts.pop();
-          currentDir.current = "/" + parts.join("/") || "/";
+        const newPath = args[0] ? normalizePath(args[0], currentDir.current) : "/home/user";
+        const newDir = getDirectory(newPath);
+        
+        if (newDir === null) {
+          term.writeln(`\x1b[31mcd: no such file or directory: ${args[0]}\x1b[0m`);
         } else {
-          currentDir.current = args[0].startsWith("/") 
-            ? args[0] 
-            : `${currentDir.current}/${args[0]}`.replace(/\/+/g, "/");
+          currentDir.current = newPath === "/" ? "/" : newPath;
         }
         break;
 
       case "mkdir":
         if (args[0]) {
-          term.writeln(`\x1b[32m✓\x1b[0m Created directory: ${args[0]}`);
-          toast({
-            title: "Command executed",
-            description: `Created directory: ${args[0]}`,
-          });
+          const mkdirPath = normalizePath(args[0], currentDir.current);
+          const parentPath = mkdirPath.split("/").slice(0, -1).join("/") || "/";
+          const dirName = mkdirPath.split("/").pop();
+          const parentDir = getDirectory(parentPath);
+          
+          if (parentDir === null) {
+            term.writeln(`\x1b[31mmkdir: cannot create directory '${args[0]}': No such file or directory\x1b[0m`);
+          } else if (parentDir[dirName!]) {
+            term.writeln(`\x1b[31mmkdir: cannot create directory '${args[0]}': File exists\x1b[0m`);
+          } else {
+            parentDir[dirName!] = {};
+            term.writeln(`\x1b[32m✓\x1b[0m Created directory: ${args[0]}`);
+            toast({
+              title: "Command executed",
+              description: `Created directory: ${args[0]}`,
+            });
+          }
         } else {
           term.writeln("\x1b[31mError: mkdir requires a directory name\x1b[0m");
         }
