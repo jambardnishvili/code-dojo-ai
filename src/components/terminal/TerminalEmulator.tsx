@@ -169,19 +169,23 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
     commandHistory.current.push(command);
     const [cmd, ...args] = command.split(" ");
 
-    // Check if this command completes any task
+    // Check if this command completes any task BEFORE executing
+    let taskCompleted = false;
     if (activeLesson) {
       for (const task of activeLesson.tasks) {
         if (completedTasks.has(task.id)) continue;
 
         let isValid = false;
         if (task.command) {
-          isValid = command.trim() === task.command;
+          // Exact match for command
+          isValid = command.trim().toLowerCase() === task.command.toLowerCase();
         } else if (task.validation) {
-          isValid = task.validation(command);
+          // Custom validation function
+          isValid = task.validation(command.trim());
         }
 
         if (isValid) {
+          taskCompleted = true;
           setCompletedTasks(prev => {
             const newSet = new Set(prev);
             newSet.add(task.id);
@@ -189,14 +193,14 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
             // Check if all tasks are complete
             const allComplete = activeLesson.tasks.every(t => newSet.has(t.id));
             if (allComplete && onLessonComplete) {
-              setTimeout(() => onLessonComplete(), 500);
+              setTimeout(() => onLessonComplete(), 1000);
             }
             
             return newSet;
           });
           
           onTaskComplete?.(task.id);
-          term.writeln(`\x1b[32m✓ Task completed: ${task.instruction}\x1b[0m`);
+          term.writeln(`\x1b[1;32m✓ Task completed: ${task.instruction}\x1b[0m`);
           toast({
             title: "Task Complete! 🎉",
             description: task.instruction,
@@ -282,6 +286,72 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
         term.clear();
         break;
 
+      case "whoami":
+        term.writeln("user");
+        break;
+
+      case "touch":
+        if (args[0]) {
+          term.writeln(`\x1b[32m✓\x1b[0m Created file: ${args[0]}`);
+        } else {
+          term.writeln("\x1b[31mtouch: missing file operand\x1b[0m");
+        }
+        break;
+
+      case "cat":
+        if (args[0]) {
+          term.writeln(`Contents of ${args[0]}`);
+        } else {
+          term.writeln("\x1b[31mcat: missing file operand\x1b[0m");
+        }
+        break;
+
+      case "history":
+        commandHistory.current.forEach((cmd, i) => {
+          term.writeln(`  ${i + 1}  ${cmd}`);
+        });
+        break;
+
+      case "git":
+        handleGitCommand(term, args);
+        break;
+
+      case "docker":
+        handleDockerCommand(term, args);
+        break;
+
+      case "grep":
+        if (args.length >= 2) {
+          term.writeln(`Searching for '${args[0]}' in ${args[1]}...`);
+        } else {
+          term.writeln("\x1b[31mgrep: missing operands\x1b[0m");
+        }
+        break;
+
+      case "sed":
+        if (args.length >= 2) {
+          term.writeln(`Processing with sed...`);
+        } else {
+          term.writeln("\x1b[31msed: missing operands\x1b[0m");
+        }
+        break;
+
+      case "awk":
+        if (args.length >= 1) {
+          term.writeln(`Processing with awk...`);
+        } else {
+          term.writeln("\x1b[31mawk: missing operands\x1b[0m");
+        }
+        break;
+
+      case "find":
+        if (args.length >= 1) {
+          term.writeln(`Searching with find...`);
+        } else {
+          term.writeln("\x1b[31mfind: missing operands\x1b[0m");
+        }
+        break;
+
       case "explain":
         if (args[0]) {
           onAIRequest();
@@ -294,6 +364,155 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
       default:
         term.writeln(`\x1b[31mCommand not found: ${cmd}\x1b[0m`);
         term.writeln(`Type 'help' for available commands or 'explain ${cmd}' to learn more`);
+    }
+  };
+
+  const handleGitCommand = (term: Terminal, args: string[]) => {
+    if (args.length === 0) {
+      term.writeln("usage: git <command> [<args>]");
+      return;
+    }
+
+    const subCmd = args[0].toLowerCase();
+    
+    switch (subCmd) {
+      case "--version":
+        term.writeln("git version 2.39.0");
+        break;
+      case "help":
+        term.writeln("Git is a distributed version control system");
+        break;
+      case "init":
+        term.writeln("\x1b[32mInitialized empty Git repository\x1b[0m");
+        break;
+      case "status":
+        term.writeln("On branch main");
+        term.writeln("nothing to commit, working tree clean");
+        break;
+      case "add":
+        term.writeln(`\x1b[32m✓\x1b[0m Staged changes`);
+        break;
+      case "commit":
+        if (args.includes("-m")) {
+          term.writeln("\x1b[32m[main abc123] Your commit message\x1b[0m");
+        } else {
+          term.writeln("\x1b[31mCommit message required. Use -m flag\x1b[0m");
+        }
+        break;
+      case "log":
+        term.writeln("commit abc123 (HEAD -> main)");
+        term.writeln("Author: user <user@example.com>");
+        term.writeln("Date:   " + new Date().toDateString());
+        break;
+      case "branch":
+        if (args.length === 1) {
+          term.writeln("* main");
+        } else {
+          term.writeln(`\x1b[32m✓\x1b[0m Created branch: ${args[1]}`);
+        }
+        break;
+      case "checkout":
+        if (args[1]) {
+          term.writeln(`Switched to branch '${args[1]}'`);
+        } else {
+          term.writeln("\x1b[31mcheckout: missing branch name\x1b[0m");
+        }
+        break;
+      case "remote":
+        if (args.includes("-v")) {
+          term.writeln("origin  https://github.com/user/repo.git (fetch)");
+          term.writeln("origin  https://github.com/user/repo.git (push)");
+        } else if (args.includes("add")) {
+          term.writeln("\x1b[32m✓\x1b[0m Remote added");
+        } else {
+          term.writeln("origin");
+        }
+        break;
+      case "fetch":
+        term.writeln("Fetching origin...");
+        break;
+      case "diff":
+        term.writeln("No changes detected");
+        break;
+      default:
+        term.writeln(`\x1b[31mgit: '${subCmd}' is not a git command\x1b[0m`);
+    }
+  };
+
+  const handleDockerCommand = (term: Terminal, args: string[]) => {
+    if (args.length === 0) {
+      term.writeln("Usage: docker [OPTIONS] COMMAND");
+      return;
+    }
+
+    const subCmd = args[0].toLowerCase();
+    
+    switch (subCmd) {
+      case "--version":
+        term.writeln("Docker version 24.0.0");
+        break;
+      case "info":
+        term.writeln("Docker Server Information");
+        term.writeln("Containers: 0");
+        term.writeln("Images: 0");
+        break;
+      case "--help":
+        term.writeln("Docker - A self-sufficient runtime for containers");
+        break;
+      case "pull":
+        if (args[1]) {
+          term.writeln(`Pulling ${args[1]}...`);
+          term.writeln("\x1b[32m✓\x1b[0m Pull complete");
+        }
+        break;
+      case "images":
+        term.writeln("REPOSITORY    TAG       IMAGE ID");
+        break;
+      case "run":
+        if (args[1]) {
+          term.writeln(`Running container from ${args[1]}...`);
+        }
+        break;
+      case "ps":
+        term.writeln("CONTAINER ID   IMAGE     COMMAND   STATUS");
+        break;
+      case "stop":
+      case "rm":
+      case "logs":
+        if (args[1]) {
+          term.writeln(`\x1b[32m✓\x1b[0m Command executed`);
+        }
+        break;
+      case "build":
+        if (args.includes("-t")) {
+          term.writeln("\x1b[32m✓\x1b[0m Image built successfully");
+        }
+        break;
+      case "tag":
+      case "inspect":
+        if (args[1]) {
+          term.writeln(`\x1b[32m✓\x1b[0m Command executed`);
+        }
+        break;
+      case "network":
+        if (args[1] === "ls") {
+          term.writeln("NETWORK ID   NAME");
+        } else if (args[1] === "create") {
+          term.writeln("\x1b[32m✓\x1b[0m Network created");
+        }
+        break;
+      case "volume":
+        if (args[1] === "ls") {
+          term.writeln("DRIVER    VOLUME NAME");
+        }
+        break;
+      case "history":
+        if (args[1]) {
+          term.writeln(`IMAGE: ${args[1]}`);
+        }
+        break;
+      default:
+        term.writeln(`\x1b[31mdocker: '${subCmd}' is not a docker command\x1b[0m`);
     }
   };
 
