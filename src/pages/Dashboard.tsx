@@ -4,6 +4,7 @@ import { Terminal, BookOpen, Trophy, Zap, LogOut } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import TerminalEmulator from "@/components/terminal/TerminalEmulator";
+import CourseSelector from "@/components/lessons/CourseSelector";
 import LessonSelector from "@/components/lessons/LessonSelector";
 import LessonView from "@/components/lessons/LessonView";
 import ProgressTracker from "@/components/progress/ProgressTracker";
@@ -20,11 +21,13 @@ interface UserProgress {
 }
 
 const Dashboard = () => {
+  const [activeCourseId, setActiveCourseId] = useState<string | null>(null);
   const [activeLessonId, setActiveLessonId] = useState<number | null>(null);
   const [showAI, setShowAI] = useState(false);
   const [userProgress, setUserProgress] = useState<UserProgress | null>(null);
   const [completedLessonsCount, setCompletedLessonsCount] = useState(0);
   const [completedLessonIds, setCompletedLessonIds] = useState<number[]>([]);
+  const [completedCourses, setCompletedCourses] = useState<{ [key: string]: number }>({});
   const { user, loading, signOut } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -50,19 +53,30 @@ const Dashboard = () => {
       .eq("user_id", user.id)
       .single();
 
-    const { data: completed } = await supabase
+    const { data: allCompleted } = await supabase
       .from("completed_lessons")
       .select("*")
-      .eq("user_id", user.id)
-      .eq("course_id", "bash-basics");
+      .eq("user_id", user.id);
 
     if (progress) {
       await updateStreak(progress);
       setUserProgress(progress);
     }
-    if (completed) {
-      setCompletedLessonsCount(completed.length);
-      setCompletedLessonIds(completed.map(c => c.lesson_id));
+    
+    if (allCompleted) {
+      // Count completed lessons per course
+      const courseCounts: { [key: string]: number } = {};
+      allCompleted.forEach(lesson => {
+        courseCounts[lesson.course_id] = (courseCounts[lesson.course_id] || 0) + 1;
+      });
+      setCompletedCourses(courseCounts);
+      
+      // Filter for active course
+      const courseCompleted = activeCourseId 
+        ? allCompleted.filter(c => c.course_id === activeCourseId)
+        : [];
+      setCompletedLessonsCount(courseCompleted.length);
+      setCompletedLessonIds(courseCompleted.map(c => c.lesson_id));
     }
   };
 
@@ -96,7 +110,7 @@ const Dashboard = () => {
   };
 
   const handleLessonComplete = async (lessonId: number, xpEarned: number) => {
-    if (!user) return;
+    if (!user || !activeCourseId) return;
 
     try {
       // Check if already completed
@@ -104,7 +118,7 @@ const Dashboard = () => {
         .from("completed_lessons")
         .select("*")
         .eq("user_id", user.id)
-        .eq("course_id", "bash-basics")
+        .eq("course_id", activeCourseId)
         .eq("lesson_id", lessonId)
         .single();
 
@@ -121,7 +135,7 @@ const Dashboard = () => {
         .from("completed_lessons")
         .insert({
           user_id: user.id,
-          course_id: "bash-basics",
+          course_id: activeCourseId,
           lesson_id: lessonId,
           xp_earned: xpEarned
         });
@@ -287,10 +301,16 @@ const Dashboard = () => {
               onComplete={handleLessonComplete}
               onBack={() => setActiveLessonId(null)}
             />
-          ) : (
+          ) : activeCourseId ? (
             <LessonSelector 
               onSelectLesson={setActiveLessonId}
               completedLessons={completedLessonIds}
+              onBack={() => setActiveCourseId(null)}
+            />
+          ) : (
+            <CourseSelector 
+              onSelectCourse={setActiveCourseId}
+              completedCourses={completedCourses}
             />
           )}
         </div>

@@ -7,12 +7,16 @@ import { BookOpen, Trophy } from "lucide-react";
 interface LessonSelectorProps {
   onSelectLesson: (lessonId: number) => void;
   completedLessons: number[];
+  onBack: () => void;
 }
 
-const LessonSelector = ({ onSelectLesson, completedLessons }: LessonSelectorProps) => {
+const LessonSelector = ({ onSelectLesson, completedLessons, onBack }: LessonSelectorProps) => {
   return (
     <Card className="p-6 gradient-card border-border/50">
       <div className="mb-6">
+        <Button variant="outline" size="sm" onClick={onBack} className="mb-4">
+          ← Back to Courses
+        </Button>
         <h2 className="text-2xl font-bold mb-2">Bash Basics Course</h2>
         <p className="text-sm text-muted-foreground">
           Start your command line journey
