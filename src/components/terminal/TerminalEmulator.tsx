@@ -142,7 +142,11 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(terminalRef.current);
-    fitAddon.fit();
+    
+    // Small delay to ensure terminal is fully initialized before fitting
+    setTimeout(() => {
+      fitAddon.fit();
+    }, 0);
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -478,7 +482,13 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
 
     // Handle resize
     const handleResize = () => {
-      fitAddon.fit();
+      if (fitAddon && term) {
+        try {
+          fitAddon.fit();
+        } catch (e) {
+          // Ignore resize errors during initialization
+        }
+      }
     };
     window.addEventListener("resize", handleResize);
 
