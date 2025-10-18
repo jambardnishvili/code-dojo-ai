@@ -32,7 +32,7 @@ const TerminalEmulator = ({ activeLesson, onAIRequest }: TerminalEmulatorProps) 
   const currentDir = useRef("/home/user");
   const commandHistory = useRef<string[]>([]);
   const historyIndex = useRef(-1);
-  let currentLine = "";
+  const currentLine = useRef("");
 
   // Helper function to get directory contents
   const getDirectory = (path: string) => {
@@ -118,12 +118,12 @@ const TerminalEmulator = ({ activeLesson, onAIRequest }: TerminalEmulatorProps) 
       // Handle special keys
       if (code === 13) { // Enter
         term.write("\r\n");
-        handleCommand(term, currentLine.trim());
-        currentLine = "";
+        handleCommand(term, currentLine.current.trim());
+        currentLine.current = "";
         writePrompt(term);
       } else if (code === 127) { // Backspace
-        if (currentLine.length > 0) {
-          currentLine = currentLine.slice(0, -1);
+        if (currentLine.current.length > 0) {
+          currentLine.current = currentLine.current.slice(0, -1);
           term.write("\b \b");
         }
       } else if (code === 27) { // Arrow keys
@@ -133,7 +133,7 @@ const TerminalEmulator = ({ activeLesson, onAIRequest }: TerminalEmulatorProps) 
         // Ignore other control characters
         return;
       } else {
-        currentLine += data;
+        currentLine.current += data;
         term.write(data);
       }
     });
