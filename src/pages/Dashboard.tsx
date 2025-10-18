@@ -5,24 +5,28 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import TerminalEmulator from "@/components/terminal/TerminalEmulator";
 import LessonSelector from "@/components/lessons/LessonSelector";
+import LessonView from "@/components/lessons/LessonView";
 import ProgressTracker from "@/components/progress/ProgressTracker";
 import AIMentor from "@/components/ai/AIMentor";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 interface UserProgress {
   total_xp: number;
   current_level: number;
   streak_days: number;
+  last_active_date: string | null;
 }
 
 const Dashboard = () => {
-  const [activeLesson, setActiveLesson] = useState<string | null>(null);
+  const [activeLessonId, setActiveLessonId] = useState<number | null>(null);
   const [showAI, setShowAI] = useState(false);
   const [userProgress, setUserProgress] = useState<UserProgress | null>(null);
   const [completedLessonsCount, setCompletedLessonsCount] = useState(0);
   const { user, loading, signOut } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!loading && !user) {
@@ -51,10 +55,106 @@ const Dashboard = () => {
       .eq("user_id", user.id);
 
     if (progress) {
+      await updateStreak(progress);
       setUserProgress(progress);
     }
     if (completed) {
       setCompletedLessonsCount(completed.length);
+    }
+  };
+
+  const updateStreak = async (progress: UserProgress) => {
+    if (!user) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    const lastActive = progress.last_active_date;
+
+    if (lastActive !== today) {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      const newStreak = lastActive === yesterdayStr ? progress.streak_days : 0;
+
+      await supabase
+        .from("user_progress")
+        .update({
+          last_active_date: today,
+          streak_days: newStreak + 1
+        })
+        .eq("user_id", user.id);
+      
+      setUserProgress(prev => prev ? {
+        ...prev,
+        last_active_date: today,
+        streak_days: newStreak + 1
+      } : null);
+    }
+  };
+
+  const handleLessonComplete = async (lessonId: number, xpEarned: number) => {
+    if (!user) return;
+
+    try {
+      // Check if already completed
+      const { data: existing } = await supabase
+        .from("completed_lessons")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("course_id", "bash-basics")
+        .eq("lesson_id", lessonId)
+        .single();
+
+      if (existing) {
+        toast({
+          title: "Already completed",
+          description: "You've already earned XP for this lesson!",
+        });
+        return;
+      }
+
+      // Mark lesson complete
+      await supabase
+        .from("completed_lessons")
+        .insert({
+          user_id: user.id,
+          course_id: "bash-basics",
+          lesson_id: lessonId,
+          xp_earned: xpEarned
+        });
+
+      // Update total XP
+      const newTotalXp = (userProgress?.total_xp || 0) + xpEarned;
+      const newLevel = Math.floor(newTotalXp / 500) + 1;
+
+      await supabase
+        .from("user_progress")
+        .update({
+          total_xp: newTotalXp,
+          current_level: newLevel
+        })
+        .eq("user_id", user.id);
+
+      setUserProgress(prev => prev ? {
+        ...prev,
+        total_xp: newTotalXp,
+        current_level: newLevel
+      } : null);
+
+      setActiveLessonId(null);
+      fetchUserProgress();
+
+      toast({
+        title: `🎉 +${xpEarned} XP!`,
+        description: `Level ${newLevel} • Total XP: ${newTotalXp}`,
+      });
+    } catch (error) {
+      console.error("Error completing lesson:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save progress. Please try again.",
+        variant: "destructive"
+      });
     }
   };
 
@@ -156,7 +256,7 @@ const Dashboard = () => {
               </span>
             </div>
             <TerminalEmulator 
-              activeLesson={activeLesson}
+              activeLesson={activeLessonId ? `lesson-${activeLessonId}` : null}
               onAIRequest={() => setShowAI(true)}
             />
           </Card>
@@ -178,10 +278,15 @@ const Dashboard = () => {
         <div className="space-y-6">
           {showAI ? (
             <AIMentor />
+          ) : activeLessonId ? (
+            <LessonView 
+              lessonId={activeLessonId}
+              onComplete={handleLessonComplete}
+              onBack={() => setActiveLessonId(null)}
+            />
           ) : (
             <LessonSelector 
-              onSelectLesson={setActiveLesson}
-              activeLesson={activeLesson}
+              onSelectLesson={(id) => setActiveLessonId(parseInt(id.split('-')[1]))}
             />
           )}
         </div>
