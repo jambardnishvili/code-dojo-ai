@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -40,11 +40,10 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
 
   const currentDir = useRef("/home/user");
   const commandHistory = useRef<string[]>([]);
-  const historyIndex = useRef(-1);
   const currentLine = useRef("");
 
   // Helper function to get directory contents
-  const getDirectory = (path: string) => {
+  const getDirectory = useCallback((path: string) => {
     const parts = path.split("/").filter(Boolean);
     let current = filesystem.current["/"];
     
@@ -55,10 +54,10 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
       current = current[part];
     }
     return current;
-  };
+  }, []);
 
   // Helper function to normalize path
-  const normalizePath = (path: string, currentPath: string) => {
+  const normalizePath = useCallback((path: string, currentPath: string) => {
     if (path.startsWith("/")) {
       return path;
     }
@@ -76,12 +75,50 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
     }
     
     return "/" + normalized.join("/");
-  };
+  }, []);
+
+  // Check task completion
+  const checkTaskCompletion = useCallback((command: string) => {
+    if (!activeLesson || !xtermRef.current) return;
+    const term = xtermRef.current;
+
+    for (const task of activeLesson.tasks) {
+      if (completedTasks.has(task.id)) continue;
+
+      let isValid = false;
+      if (task.command) {
+        isValid = command.trim().toLowerCase() === task.command.toLowerCase();
+      } else if (task.validation) {
+        isValid = task.validation(command.trim());
+      }
+
+      if (isValid) {
+        setCompletedTasks(prev => {
+          const newSet = new Set(prev);
+          newSet.add(task.id);
+          
+          const allComplete = activeLesson.tasks.every(t => newSet.has(t.id));
+          if (allComplete && onLessonComplete) {
+            setTimeout(() => onLessonComplete(), 1000);
+          }
+          
+          return newSet;
+        });
+        
+        onTaskComplete?.(task.id);
+        term.writeln(`\x1b[1;32m✓ Task completed: ${task.instruction}\x1b[0m`);
+        toast({
+          title: "Task Complete! 🎉",
+          description: task.instruction,
+        });
+        break;
+      }
+    }
+  }, [activeLesson, completedTasks, onTaskComplete, onLessonComplete, toast]);
 
   useEffect(() => {
     if (!terminalRef.current || xtermRef.current) return;
 
-    // Initialize terminal
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 14,
@@ -110,12 +147,163 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Command handler functions - defined first so they're available
     const writePrompt = () => {
       term.write(`\x1b[1;32muser@tutor\x1b[0m:\x1b[1;34m${currentDir.current}\x1b[0m$ `);
     };
 
-    const handleGitCommand = (args: string[]) => {
+    const handleCommand = (command: string) => {
+      if (!command) return;
+
+      commandHistory.current.push(command);
+      checkTaskCompletion(command);
+      
+      const [cmd, ...args] = command.split(" ");
+
+      switch (cmd.toLowerCase()) {
+        case "help":
+          term.writeln("\x1b[1;33mAvailable Commands:\x1b[0m");
+          term.writeln("  ls, cd, pwd, mkdir, echo, clear");
+          term.writeln("  git, docker, grep, sed, awk, find");
+          term.writeln("  whoami, touch, cat, history");
+          break;
+
+        case "ls":
+          const targetPath = args[0] ? normalizePath(args[0], currentDir.current) : currentDir.current;
+          const dir = getDirectory(targetPath);
+          if (dir === null) {
+            term.writeln(`\x1b[31mls: cannot access '${args[0]}': No such file or directory\x1b[0m`);
+          } else {
+            const contents = Object.keys(dir);
+            if (contents.length > 0) {
+              term.writeln("\x1b[1;36m" + contents.join("  ") + "\x1b[0m");
+            }
+          }
+          break;
+
+        case "pwd":
+          term.writeln(currentDir.current);
+          break;
+
+        case "cd":
+          const newPath = args[0] ? normalizePath(args[0], currentDir.current) : "/home/user";
+          const newDir = getDirectory(newPath);
+          if (newDir === null) {
+            term.writeln(`\x1b[31mcd: no such file or directory: ${args[0]}\x1b[0m`);
+          } else {
+            currentDir.current = newPath === "/" ? "/" : newPath;
+          }
+          break;
+
+        case "mkdir":
+          if (args[0]) {
+            const mkdirPath = normalizePath(args[0], currentDir.current);
+            const parentPath = mkdirPath.split("/").slice(0, -1).join("/") || "/";
+            const dirName = mkdirPath.split("/").pop();
+            const parentDir = getDirectory(parentPath);
+            
+            if (parentDir === null) {
+              term.writeln(`\x1b[31mmkdir: cannot create directory '${args[0]}': No such file or directory\x1b[0m`);
+            } else if (parentDir[dirName!]) {
+              term.writeln(`\x1b[31mmkdir: cannot create directory '${args[0]}': File exists\x1b[0m`);
+            } else {
+              parentDir[dirName!] = {};
+              term.writeln(`\x1b[32m✓\x1b[0m Created directory: ${args[0]}`);
+            }
+          } else {
+            term.writeln("\x1b[31mError: mkdir requires a directory name\x1b[0m");
+          }
+          break;
+
+        case "echo":
+          term.writeln(args.join(" "));
+          break;
+
+        case "clear":
+          term.clear();
+          break;
+
+        case "whoami":
+          term.writeln("user");
+          break;
+
+        case "touch":
+          if (args[0]) {
+            term.writeln(`\x1b[32m✓\x1b[0m Created file: ${args[0]}`);
+          } else {
+            term.writeln("\x1b[31mtouch: missing file operand\x1b[0m");
+          }
+          break;
+
+        case "cat":
+          if (args[0]) {
+            term.writeln(`Contents of ${args[0]}`);
+          } else {
+            term.writeln("\x1b[31mcat: missing file operand\x1b[0m");
+          }
+          break;
+
+        case "history":
+          commandHistory.current.forEach((cmd, i) => {
+            term.writeln(`  ${i + 1}  ${cmd}`);
+          });
+          break;
+
+        case "git":
+          handleGit(term, args);
+          break;
+
+        case "docker":
+          handleDocker(term, args);
+          break;
+
+        case "grep":
+          if (args.length >= 2) {
+            term.writeln(`Searching for '${args[0]}' in ${args[1]}...`);
+          } else {
+            term.writeln("\x1b[31mgrep: missing operands\x1b[0m");
+          }
+          break;
+
+        case "sed":
+          if (args.length >= 2) {
+            term.writeln(`Processing with sed...`);
+          } else {
+            term.writeln("\x1b[31msed: missing operands\x1b[0m");
+          }
+          break;
+
+        case "awk":
+          if (args.length >= 1) {
+            term.writeln(`Processing with awk...`);
+          } else {
+            term.writeln("\x1b[31mawk: missing operands\x1b[0m");
+          }
+          break;
+
+        case "find":
+          if (args.length >= 1) {
+            term.writeln(`Searching with find...`);
+          } else {
+            term.writeln("\x1b[31mfind: missing operands\x1b[0m");
+          }
+          break;
+
+        case "explain":
+          if (args[0]) {
+            onAIRequest();
+            term.writeln(`\x1b[32m→ Asking AI about: ${args[0]}\x1b[0m`);
+          } else {
+            term.writeln("\x1b[31mUsage: explain <command>\x1b[0m");
+          }
+          break;
+
+        default:
+          term.writeln(`\x1b[31mCommand not found: ${cmd}\x1b[0m`);
+          term.writeln(`Type 'help' for available commands`);
+      }
+    };
+
+    const handleGit = (term: Terminal, args: string[]) => {
       if (args.length === 0) {
         term.writeln("usage: git <command> [<args>]");
         return;
@@ -149,8 +337,6 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
           break;
         case "log":
           term.writeln("commit abc123 (HEAD -> main)");
-          term.writeln("Author: user <user@example.com>");
-          term.writeln("Date:   " + new Date().toDateString());
           break;
         case "branch":
           if (args.length === 1) {
@@ -162,18 +348,13 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
         case "checkout":
           if (args[1]) {
             term.writeln(`Switched to branch '${args[1]}'`);
-          } else {
-            term.writeln("\x1b[31mcheckout: missing branch name\x1b[0m");
           }
           break;
         case "remote":
           if (args.includes("-v")) {
-            term.writeln("origin  https://github.com/user/repo.git (fetch)");
-            term.writeln("origin  https://github.com/user/repo.git (push)");
+            term.writeln("origin  https://github.com/user/repo.git");
           } else if (args.includes("add")) {
             term.writeln("\x1b[32m✓\x1b[0m Remote added");
-          } else {
-            term.writeln("origin");
           }
           break;
         case "fetch":
@@ -187,7 +368,7 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
       }
     };
 
-    const handleDockerCommand = (args: string[]) => {
+    const handleDocker = (term: Terminal, args: string[]) => {
       if (args.length === 0) {
         term.writeln("Usage: docker [OPTIONS] COMMAND");
         return;
@@ -201,8 +382,6 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
           break;
         case "info":
           term.writeln("Docker Server Information");
-          term.writeln("Containers: 0");
-          term.writeln("Images: 0");
           break;
         case "--help":
           term.writeln("Docker - A self-sufficient runtime for containers");
@@ -264,217 +443,12 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
       }
     };
 
-    const handleCommand = (command: string) => {
-      if (!command) return;
-
-      commandHistory.current.push(command);
-      const [cmd, ...args] = command.split(" ");
-
-      // Check if this command completes any task BEFORE executing
-      let taskCompleted = false;
-      if (activeLesson) {
-        for (const task of activeLesson.tasks) {
-          if (completedTasks.has(task.id)) continue;
-
-          let isValid = false;
-          if (task.command) {
-            // Exact match for command
-            isValid = command.trim().toLowerCase() === task.command.toLowerCase();
-          } else if (task.validation) {
-            // Custom validation function
-            isValid = task.validation(command.trim());
-          }
-
-          if (isValid) {
-            taskCompleted = true;
-            setCompletedTasks(prev => {
-              const newSet = new Set(prev);
-              newSet.add(task.id);
-              
-              // Check if all tasks are complete
-              const allComplete = activeLesson.tasks.every(t => newSet.has(t.id));
-              if (allComplete && onLessonComplete) {
-                setTimeout(() => onLessonComplete(), 1000);
-              }
-              
-              return newSet;
-            });
-            
-            onTaskComplete?.(task.id);
-            term.writeln(`\x1b[1;32m✓ Task completed: ${task.instruction}\x1b[0m`);
-            toast({
-              title: "Task Complete! 🎉",
-              description: task.instruction,
-            });
-            break;
-          }
-        }
-      }
-
-      switch (cmd.toLowerCase()) {
-        case "help":
-          term.writeln("\x1b[1;33mAvailable Commands:\x1b[0m");
-          term.writeln("  ls          - List directory contents");
-          term.writeln("  cd <dir>    - Change directory");
-          term.writeln("  pwd         - Print working directory");
-          term.writeln("  mkdir <dir> - Create directory");
-          term.writeln("  echo <text> - Display text");
-          term.writeln("  clear       - Clear the terminal");
-          term.writeln("  explain <cmd> - Get AI explanation");
-          term.writeln("  help        - Show this help");
-          break;
-
-        case "ls":
-          const targetPath = args[0] ? normalizePath(args[0], currentDir.current) : currentDir.current;
-          const dir = getDirectory(targetPath);
-          
-          if (dir === null) {
-            term.writeln(`\x1b[31mls: cannot access '${args[0]}': No such file or directory\x1b[0m`);
-          } else {
-            const contents = Object.keys(dir);
-            if (contents.length === 0) {
-              // Empty directory
-            } else {
-              term.writeln("\x1b[1;36m" + contents.join("  ") + "\x1b[0m");
-            }
-          }
-          break;
-
-        case "pwd":
-          term.writeln(currentDir.current);
-          break;
-
-        case "cd":
-          const newPath = args[0] ? normalizePath(args[0], currentDir.current) : "/home/user";
-          const newDir = getDirectory(newPath);
-          
-          if (newDir === null) {
-            term.writeln(`\x1b[31mcd: no such file or directory: ${args[0]}\x1b[0m`);
-          } else {
-            currentDir.current = newPath === "/" ? "/" : newPath;
-          }
-          break;
-
-        case "mkdir":
-          if (args[0]) {
-            const mkdirPath = normalizePath(args[0], currentDir.current);
-            const parentPath = mkdirPath.split("/").slice(0, -1).join("/") || "/";
-            const dirName = mkdirPath.split("/").pop();
-            const parentDir = getDirectory(parentPath);
-            
-            if (parentDir === null) {
-              term.writeln(`\x1b[31mmkdir: cannot create directory '${args[0]}': No such file or directory\x1b[0m`);
-            } else if (parentDir[dirName!]) {
-              term.writeln(`\x1b[31mmkdir: cannot create directory '${args[0]}': File exists\x1b[0m`);
-            } else {
-              parentDir[dirName!] = {};
-              term.writeln(`\x1b[32m✓\x1b[0m Created directory: ${args[0]}`);
-              toast({
-                title: "Command executed",
-                description: `Created directory: ${args[0]}`,
-              });
-            }
-          } else {
-            term.writeln("\x1b[31mError: mkdir requires a directory name\x1b[0m");
-          }
-          break;
-
-        case "echo":
-          term.writeln(args.join(" "));
-          break;
-
-        case "clear":
-          term.clear();
-          break;
-
-        case "whoami":
-          term.writeln("user");
-          break;
-
-        case "touch":
-          if (args[0]) {
-            term.writeln(`\x1b[32m✓\x1b[0m Created file: ${args[0]}`);
-          } else {
-            term.writeln("\x1b[31mtouch: missing file operand\x1b[0m");
-          }
-          break;
-
-        case "cat":
-          if (args[0]) {
-            term.writeln(`Contents of ${args[0]}`);
-          } else {
-            term.writeln("\x1b[31mcat: missing file operand\x1b[0m");
-          }
-          break;
-
-        case "history":
-          commandHistory.current.forEach((cmd, i) => {
-            term.writeln(`  ${i + 1}  ${cmd}`);
-          });
-          break;
-
-        case "git":
-          handleGitCommand(args);
-          break;
-
-        case "docker":
-          handleDockerCommand(args);
-          break;
-
-        case "grep":
-          if (args.length >= 2) {
-            term.writeln(`Searching for '${args[0]}' in ${args[1]}...`);
-          } else {
-            term.writeln("\x1b[31mgrep: missing operands\x1b[0m");
-          }
-          break;
-
-        case "sed":
-          if (args.length >= 2) {
-            term.writeln(`Processing with sed...`);
-          } else {
-            term.writeln("\x1b[31msed: missing operands\x1b[0m");
-          }
-          break;
-
-        case "awk":
-          if (args.length >= 1) {
-            term.writeln(`Processing with awk...`);
-          } else {
-            term.writeln("\x1b[31mawk: missing operands\x1b[0m");
-          }
-          break;
-
-        case "find":
-          if (args.length >= 1) {
-            term.writeln(`Searching with find...`);
-          } else {
-            term.writeln("\x1b[31mfind: missing operands\x1b[0m");
-          }
-          break;
-
-        case "explain":
-          if (args[0]) {
-            onAIRequest();
-            term.writeln(`\x1b[32m→ Asking AI about: ${args[0]}\x1b[0m`);
-          } else {
-            term.writeln("\x1b[31mUsage: explain <command>\x1b[0m");
-          }
-          break;
-
-        default:
-          term.writeln(`\x1b[31mCommand not found: ${cmd}\x1b[0m`);
-          term.writeln(`Type 'help' for available commands or 'explain ${cmd}' to learn more`);
-      }
-    };
-
     // Welcome message
     term.writeln("\x1b[1;32m╔═══════════════════════════════════════════════╗\x1b[0m");
     term.writeln("\x1b[1;32m║     Welcome to AI Terminal Tutor v1.0        ║\x1b[0m");
     term.writeln("\x1b[1;32m╚═══════════════════════════════════════════════╝\x1b[0m");
     term.writeln("");
     term.writeln("Type 'help' for available commands");
-    term.writeln("Type 'explain <command>' to learn about any command");
     term.writeln("");
     writePrompt();
 
@@ -482,7 +456,6 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
     term.onData((data) => {
       const code = data.charCodeAt(0);
 
-      // Handle special keys
       if (code === 13) { // Enter
         term.write("\r\n");
         handleCommand(currentLine.current.trim());
@@ -494,10 +467,8 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
           term.write("\b \b");
         }
       } else if (code === 27) { // Arrow keys
-        // Handle arrow key navigation through history
         return;
       } else if (code < 32) {
-        // Ignore other control characters
         return;
       } else {
         currentLine.current += data;
@@ -515,7 +486,7 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
       window.removeEventListener("resize", handleResize);
       term.dispose();
     };
-  }, []); // Empty deps - only run once on mount
+  }, [checkTaskCompletion, getDirectory, normalizePath, onAIRequest]);
 
   return (
     <div 
