@@ -24,6 +24,7 @@ const Dashboard = () => {
   const [showAI, setShowAI] = useState(false);
   const [userProgress, setUserProgress] = useState<UserProgress | null>(null);
   const [completedLessonsCount, setCompletedLessonsCount] = useState(0);
+  const [completedLessonIds, setCompletedLessonIds] = useState<number[]>([]);
   const { user, loading, signOut } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -52,7 +53,8 @@ const Dashboard = () => {
     const { data: completed } = await supabase
       .from("completed_lessons")
       .select("*")
-      .eq("user_id", user.id);
+      .eq("user_id", user.id)
+      .eq("course_id", "bash-basics");
 
     if (progress) {
       await updateStreak(progress);
@@ -60,6 +62,7 @@ const Dashboard = () => {
     }
     if (completed) {
       setCompletedLessonsCount(completed.length);
+      setCompletedLessonIds(completed.map(c => c.lesson_id));
     }
   };
 
@@ -286,7 +289,8 @@ const Dashboard = () => {
             />
           ) : (
             <LessonSelector 
-              onSelectLesson={(id) => setActiveLessonId(parseInt(id.split('-')[1]))}
+              onSelectLesson={setActiveLessonId}
+              completedLessons={completedLessonIds}
             />
           )}
         </div>
