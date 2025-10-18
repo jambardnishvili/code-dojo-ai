@@ -1,19 +1,28 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { useToast } from "@/hooks/use-toast";
+import { Lesson } from "@/courses/bash-basics/lessons";
 
 interface TerminalEmulatorProps {
-  activeLesson: string | null;
+  activeLesson: Lesson | null;
   onAIRequest: () => void;
+  onTaskComplete?: (taskId: string) => void;
+  onLessonComplete?: () => void;
 }
 
-const TerminalEmulator = ({ activeLesson, onAIRequest }: TerminalEmulatorProps) => {
+const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonComplete }: TerminalEmulatorProps) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const { toast } = useToast();
+  const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set());
+
+  // Reset completed tasks when lesson changes
+  useEffect(() => {
+    setCompletedTasks(new Set());
+  }, [activeLesson?.id]);
 
   // Simulated filesystem
   const filesystem = useRef<any>({
@@ -159,6 +168,43 @@ const TerminalEmulator = ({ activeLesson, onAIRequest }: TerminalEmulatorProps) 
 
     commandHistory.current.push(command);
     const [cmd, ...args] = command.split(" ");
+
+    // Check if this command completes any task
+    if (activeLesson) {
+      for (const task of activeLesson.tasks) {
+        if (completedTasks.has(task.id)) continue;
+
+        let isValid = false;
+        if (task.command) {
+          isValid = command.trim() === task.command;
+        } else if (task.validation) {
+          isValid = task.validation(command);
+        }
+
+        if (isValid) {
+          setCompletedTasks(prev => {
+            const newSet = new Set(prev);
+            newSet.add(task.id);
+            
+            // Check if all tasks are complete
+            const allComplete = activeLesson.tasks.every(t => newSet.has(t.id));
+            if (allComplete && onLessonComplete) {
+              setTimeout(() => onLessonComplete(), 500);
+            }
+            
+            return newSet;
+          });
+          
+          onTaskComplete?.(task.id);
+          term.writeln(`\x1b[32m✓ Task completed: ${task.instruction}\x1b[0m`);
+          toast({
+            title: "Task Complete! 🎉",
+            description: task.instruction,
+          });
+          break;
+        }
+      }
+    }
 
     switch (cmd.toLowerCase()) {
       case "help":

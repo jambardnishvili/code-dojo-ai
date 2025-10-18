@@ -12,6 +12,8 @@ import AIMentor from "@/components/ai/AIMentor";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { courses } from "@/courses";
+import { Lesson, lessons as bashLessons } from "@/courses/bash-basics/lessons";
 
 interface UserProgress {
   total_xp: number;
@@ -24,6 +26,17 @@ const Dashboard = () => {
   const [activeCourseId, setActiveCourseId] = useState<string | null>(null);
   const [activeLessonId, setActiveLessonId] = useState<number | null>(null);
   const [showAI, setShowAI] = useState(false);
+  
+  // Get current lesson based on active course and lesson
+  const getCurrentLesson = (): Lesson | null => {
+    if (!activeCourseId || !activeLessonId) return null;
+    
+    if (activeCourseId === "bash-basics") {
+      return bashLessons.find(l => l.id === activeLessonId) || null;
+    }
+    // Other courses don't have proper validation structure yet
+    return null;
+  };
   const [userProgress, setUserProgress] = useState<UserProgress | null>(null);
   const [completedLessonsCount, setCompletedLessonsCount] = useState(0);
   const [completedLessonIds, setCompletedLessonIds] = useState<number[]>([]);
@@ -273,8 +286,16 @@ const Dashboard = () => {
               </span>
             </div>
             <TerminalEmulator 
-              activeLesson={activeLessonId ? `lesson-${activeLessonId}` : null}
+              activeLesson={getCurrentLesson()}
               onAIRequest={() => setShowAI(true)}
+              onLessonComplete={() => {
+                if (activeLessonId) {
+                  const lesson = getCurrentLesson();
+                  if (lesson) {
+                    handleLessonComplete(activeLessonId, lesson.xp);
+                  }
+                }
+              }}
             />
           </Card>
 
