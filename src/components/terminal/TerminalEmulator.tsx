@@ -515,7 +515,7 @@ const TerminalEmulator = ({ activeLesson, onAIRequest, onTaskComplete, onLessonC
       window.removeEventListener("resize", handleResize);
       term.dispose();
     };
-  }, [activeLesson, completedTasks, onAIRequest, onTaskComplete, onLessonComplete, toast]);
+  }, []); // Empty deps - only run once on mount
 
   return (
     <div 
