@@ -1,16 +1,78 @@
-import { useState } from "react";
-import { Terminal, BookOpen, Trophy, Zap } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { Terminal, BookOpen, Trophy, Zap, LogOut } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import TerminalEmulator from "@/components/terminal/TerminalEmulator";
 import LessonSelector from "@/components/lessons/LessonSelector";
 import ProgressTracker from "@/components/progress/ProgressTracker";
 import AIMentor from "@/components/ai/AIMentor";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+
+interface UserProgress {
+  total_xp: number;
+  current_level: number;
+  streak_days: number;
+}
 
 const Dashboard = () => {
   const [activeLesson, setActiveLesson] = useState<string | null>(null);
   const [showAI, setShowAI] = useState(false);
+  const [userProgress, setUserProgress] = useState<UserProgress | null>(null);
+  const [completedLessonsCount, setCompletedLessonsCount] = useState(0);
+  const { user, loading, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate("/auth");
+    }
+  }, [user, loading, navigate]);
+
+  useEffect(() => {
+    if (user) {
+      fetchUserProgress();
+    }
+  }, [user]);
+
+  const fetchUserProgress = async () => {
+    if (!user) return;
+
+    const { data: progress } = await supabase
+      .from("user_progress")
+      .select("*")
+      .eq("user_id", user.id)
+      .single();
+
+    const { data: completed } = await supabase
+      .from("completed_lessons")
+      .select("*")
+      .eq("user_id", user.id);
+
+    if (progress) {
+      setUserProgress(progress);
+    }
+    if (completed) {
+      setCompletedLessonsCount(completed.length);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/");
+  };
+
+  if (loading || !user) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Terminal className="w-12 h-12 text-primary animate-pulse mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -25,7 +87,16 @@ const Dashboard = () => {
               Learn the command line by doing — guided by AI
             </p>
           </div>
-          <ProgressTracker />
+          <div className="flex items-center gap-4">
+            <ProgressTracker
+              totalXp={userProgress?.total_xp || 0}
+              currentLevel={userProgress?.current_level || 1}
+            />
+            <Button variant="outline" size="sm" onClick={handleSignOut}>
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign Out
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -40,8 +111,8 @@ const Dashboard = () => {
                   <Zap className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">XP Today</p>
-                  <p className="text-2xl font-bold">340</p>
+                  <p className="text-sm text-muted-foreground">Total XP</p>
+                  <p className="text-2xl font-bold">{userProgress?.total_xp || 0}</p>
                 </div>
               </div>
             </Card>
@@ -53,7 +124,7 @@ const Dashboard = () => {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Lessons</p>
-                  <p className="text-2xl font-bold">12/24</p>
+                  <p className="text-2xl font-bold">{completedLessonsCount}/45</p>
                 </div>
               </div>
             </Card>
@@ -65,7 +136,7 @@ const Dashboard = () => {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Streak</p>
-                  <p className="text-2xl font-bold">7 days</p>
+                  <p className="text-2xl font-bold">{userProgress?.streak_days || 0} days</p>
                 </div>
               </div>
             </Card>
